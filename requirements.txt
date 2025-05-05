@@ -1,0 +1,16 @@
+flask
+unstructured[all-docs]
+langchain
+langchain-community
+langchain-groq
+langchain-openai
+langchain-huggingface
+google-generativeai
+python-dotenv
+chromadb
+tiktoken
+pillow
+poppler-utils
+lxml
+nltk
+uuid

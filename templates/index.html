@@ -1,0 +1,294 @@
+<!-- templates/index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multimodal Chat</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        .chat-container {
+            height: calc(100vh - 180px);
+        }
+        .message-bubble {
+            max-width: 80%;
+            word-wrap: break-word;
+        }
+        .user-message {
+            background-color: #e2f5fc;
+            border-radius: 18px 18px 0 18px;
+        }
+        .assistant-message {
+            background-color: #f0f0f0;
+            border-radius: 18px 18px 18px 0;
+        }
+        .source-container {
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .loading-dots:after {
+            content: '.';
+            animation: dots 1.5s steps(5, end) infinite;
+        }
+        @keyframes dots {
+            0%, 20% { content: '.'; }
+            40% { content: '..'; }
+            60% { content: '...'; }
+            80%, 100% { content: ''; }
+        }
+        pre {
+            background-color: #f5f5f5;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 10px 0;
+        }
+        table, th, td {
+            border: 1px solid #ddd;
+        }
+        th, td {
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+    <div class="container mx-auto px-4 py-8">
+        <h1 class="text-3xl font-bold text-center mb-6">Multimodal RAG Chat</h1>
+        
+        <!-- File Upload Section -->
+        <div class="bg-white p-6 rounded-lg shadow-md mb-6">
+            <h2 class="text-xl font-semibold mb-4">Upload Document</h2>
+            <form id="uploadForm" class="flex flex-col md:flex-row items-center">
+                <input type="file" id="pdfFile" name="pdf_file" accept=".pdf" class="flex-grow p-2 border rounded mr-0 md:mr-4 mb-4 md:mb-0">
+                <button type="submit" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded">
+                    Upload & Process
+                </button>
+            </form>
+            <div id="uploadStatus" class="mt-4 text-gray-700"></div>
+        </div>
+        
+        <!-- Chat Interface -->
+        <div class="bg-white rounded-lg shadow-md">
+            <!-- Messages Container -->
+            <div id="chatMessages" class="chat-container p-4 overflow-y-auto border-b">
+                <div class="assistant-message message-bubble p-3 mb-4 ml-2">
+                    Hello! I'm your multimodal assistant. Upload a document and ask me questions about it!
+                </div>
+            </div>
+            
+            <!-- Input Area -->
+            <div class="p-4">
+                <div class="flex items-stretch">
+                    <input type="text" id="questionInput" placeholder="Ask a question..." 
+                           class="flex-grow p-3 border rounded-l focus:outline-none focus:ring-2 focus:ring-blue-300">
+                    <button id="sendButton" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-6 rounded-r">
+                        Send
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const uploadForm = document.getElementById('uploadForm');
+            const uploadStatus = document.getElementById('uploadStatus');
+            const chatMessages = document.getElementById('chatMessages');
+            const questionInput = document.getElementById('questionInput');
+            const sendButton = document.getElementById('sendButton');
+            let isProcessing = false;
+
+            // Upload Form Handler
+            uploadForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                
+                const formData = new FormData();
+                const fileInput = document.getElementById('pdfFile');
+                
+                if (fileInput.files.length === 0) {
+                    uploadStatus.innerHTML = '<span class="text-red-500">Please select a file first.</span>';
+                    return;
+                }
+                
+                formData.append('pdf_file', fileInput.files[0]);
+                
+                uploadStatus.innerHTML = '<span class="text-blue-500">Uploading and processing document<span class="loading-dots"></span></span>';
+                
+                fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        uploadStatus.innerHTML = `<span class="text-red-500">Error: ${data.error}</span>`;
+                    } else {
+                        uploadStatus.innerHTML = `<span class="text-green-500">✓ Document uploaded and processing started. You can now ask questions about it.</span>`;
+                        // Add assistant message
+                        addMessage('I\'ve received your document and I\'m processing it. Feel free to ask questions about it!', 'assistant');
+                    }
+                })
+                .catch(error => {
+                    uploadStatus.innerHTML = `<span class="text-red-500">Error: ${error.message}</span>`;
+                });
+            });
+            
+            // Send Question Handler
+            sendButton.addEventListener('click', sendQuestion);
+            questionInput.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    sendQuestion();
+                }
+            });
+            
+            function sendQuestion() {
+                if (isProcessing) return;
+                
+                const question = questionInput.value.trim();
+                if (!question) return;
+                
+                // Add user message to chat
+                addMessage(question, 'user');
+                
+                // Clear input
+                questionInput.value = '';
+                
+                // Add temporary assistant message
+                const tempMessageId = 'msg-' + Date.now();
+                chatMessages.innerHTML += `
+                    <div id="${tempMessageId}" class="assistant-message message-bubble p-3 mb-4 ml-2">
+                        <span class="text-gray-700">Thinking<span class="loading-dots"></span></span>
+                    </div>
+                `;
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+                
+                isProcessing = true;
+                
+                // Send question to backend
+                fetch('/ask', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ question: question })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    isProcessing = false;
+                    
+                    // Remove temporary message
+                    document.getElementById(tempMessageId).remove();
+                    
+                    if (data.error) {
+                        addMessage(`Error: ${data.error}`, 'assistant');
+                    } else {
+                        // Add final assistant message with answer and sources
+                        addResponseWithSources(data);
+                    }
+                })
+                .catch(error => {
+                    isProcessing = false;
+                    document.getElementById(tempMessageId).remove();
+                    addMessage(`Sorry, there was an error processing your question: ${error.message}`, 'assistant');
+                });
+            }
+            
+            function addMessage(content, sender) {
+                const messageClass = sender === 'user' ? 'user-message ml-auto mr-2' : 'assistant-message ml-2';
+                
+                chatMessages.innerHTML += `
+                    <div class="${messageClass} message-bubble p-3 mb-4">
+                        ${formatContent(content)}
+                    </div>
+                `;
+                
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+            }
+            
+            function addResponseWithSources(data) {
+                const answer = data.answer;
+                const sources = data.sources;
+                
+                let messageHTML = `
+                    <div class="assistant-message message-bubble p-3 mb-4 ml-2">
+                        ${formatContent(answer)}
+                `;
+                
+                // Add sources if available
+                if ((sources.texts && sources.texts.length > 0) || (sources.images && sources.images.length > 0)) {
+                    messageHTML += `<div class="mt-3 pt-3 border-t border-gray-300">
+                        <p class="font-semibold text-gray-700 mb-2">Sources:</p>
+                        <div class="source-container">`;
+                    
+                    // Add text sources
+                    if (sources.texts && sources.texts.length > 0) {
+                        sources.texts.forEach(source => {
+                            const pageInfo = source.page_number ? `<span class="text-gray-500 text-sm">(Page ${source.page_number})</span>` : '';
+                            messageHTML += `
+                                <div class="mb-2 pb-2 border-b border-gray-200">
+                                    ${pageInfo}
+                                    <div class="text-sm text-gray-700">${formatContent(source.content)}</div>
+                                </div>
+                            `;
+                        });
+                    }
+                    
+                    // Add image sources
+                    if (sources.images && sources.images.length > 0) {
+                        sources.images.forEach(image => {
+                            messageHTML += `
+                                <div class="mb-2">
+                                    <img src="data:image/jpeg;base64,${image}" alt="Source Image" class="max-w-full h-auto rounded">
+                                </div>
+                            `;
+                        });
+                    }
+                    
+                    messageHTML += `</div></div>`;
+                }
+                
+                messageHTML += `</div>`;
+                
+                chatMessages.innerHTML += messageHTML;
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+            }
+            
+            function formatContent(content) {
+                if (!content) return '';
+                
+                // Handle code blocks with triple backticks
+                content = content.replace(/```([a-z]*)\n([\s\S]*?)```/g, function(match, language, code) {
+                    return `<pre><code class="language-${language}">${escapeHtml(code)}</code></pre>`;
+                });
+                
+                // Handle tables (simple HTML table detection)
+                content = content.replace(/<table[\s\S]*?<\/table>/g, function(match) {
+                    return match; // Keep HTML tables as they are
+                });
+                
+                // Handle line breaks
+                content = content.replace(/\n/g, '<br>');
+                
+                return content;
+            }
+            
+            function escapeHtml(unsafe) {
+                return unsafe
+                    .replace(/&/g, "&amp;")
+                    .replace(/</g, "&lt;")
+                    .replace(/>/g, "&gt;")
+                    .replace(/"/g, "&quot;")
+                    .replace(/'/g, "&#039;");
+            }
+        });
+    </script>
+</body>
+</html>
