@@ -193,13 +193,13 @@ def process_pdf(file_path):
     print("Generating text summaries...")
     text_summaries = summarize_chain.batch(texts, {"max_concurrency": 3})
     
-    time.sleep(2) 
+    time.sleep(5) 
     
     
     print("Generating table summaries...")
     tables_html = [table.metadata.text_as_html for table in tables]
     table_summaries = summarize_chain.batch(tables_html, {"max_concurrency": 3})
-    time.sleep(4)
+    time.sleep(5)
     
     # For images, use Gemini
     print("Generating image summaries...")
